@@ -2,8 +2,7 @@
 require 'rubygems'
 require 'json'
 require 'pp'
-require 'net/http'
-require 'open3'
+require 'net/https'
 
 def transform_hash(oldhash)
     newhash = Hash.new
@@ -53,51 +52,78 @@ def transform_hash(oldhash)
 end
 
 def send_events(parsed)
-    pp(parsed)
     outarr = Array.new
     if parsed["kind"].eql?("EventList") then
+        resourceVersion = parsed["metadata"]["resourceVersion"]
+        puts "Picked up Resource Version #{resourceVersion}"
+        puts "Parsing #{parsed["items"].size} items"
         parsed["items"].each do |ev|
             outhash = transform_hash(ev)
             outarr.push(outhash)
         end
     else
+        resourceVersion=""
+        puts "Only picked up 1 item - I dont think this should happen now"
         outhash = transform_hash(parsed)
         outarr.push(outhash)
     end
 
-    pp(outarr)
+    if outarr.size > 0 then
+        url = "http://192.168.99.1:9080/events/publish/KubernetesEvents"
+        uri = URI.parse(url)
 
-    url = "http://localhost:9080/events/publish/KubernetesEvents"
+        http = Net::HTTP.new(uri.host, uri.port)
+        request = Net::HTTP::Post.new(uri.path,
+            initheader = {
+                "Content-type" => "application/vnd.appd.events+json;v=1",
+                "X-Events-API-AccountName" => "customer1_dafe513b-048d-4366-bba3-c186743bf418",
+                "X-Events-API-Key" => "3ae6226d-899d-4d88-a60c-04a19355d721"
+            })
+        request.body = outarr.to_json
+
+        puts request.body
+
+        res = http.request(request)
+
+        puts "Response #{res.code} #{res.message}: #{res.body}"
+    end
+
+    return resourceVersion
+end
+
+resourceVersion=""
+file = File.open("/var/run/secrets/kubernetes.io/serviceaccount/token")
+contents = "Bearer "
+file.each {|line|
+  contents << line
+}
+
+while true do
+    host = ENV["KUBERNETES_SERVICE_HOST"]
+    port = ENV["KUBERNETES_PORT_443_TCP_PORT"]
+
+    if (resourceVersion.length > 0) then
+        url = "https://#{host}:#{port}/api/v1/watch/namespaces/default/events?resourceVersion=#{resourceVersion}"
+    else
+        url = "https://#{host}:#{port}/api/v1/namespaces/default/events"
+    end
+
+    puts "URL is #{url}"
     uri = URI.parse(url)
 
     http = Net::HTTP.new(uri.host, uri.port)
-    request = Net::HTTP::Post.new(uri.path,
-        initheader = {
-            "Content-type" => "application/vnd.appd.events+json;v=1",
-            "X-Events-API-AccountName" => "customer1_dafe513b-048d-4366-bba3-c186743bf418",
-            "X-Events-API-Key" => "3ae6226d-899d-4d88-a60c-04a19355d721"
-        })
-    request.body = outarr.to_json
+    http.use_ssl = true
+    # I will sort this out!
+    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
 
-    puts request.body
+    request = Net::HTTP::Get.new(uri.path,
+    initheader = {
+        "Authorization" => contents
+    })
 
     res = http.request(request)
 
     puts "Response #{res.code} #{res.message}: #{res.body}"
+
+    resourceVersion = send_events(JSON.parse(res.body))
 end
-
-# CMD = "kubectl get events -o json -w"
-# bc=0
-# ke=""
-# Open3.popen2(CMD) do |i,o,t|
-    # o.each do |line|
-        # bc = bc + line.count("{") - line.count("}")
-        # ke = ke + line
-        # if bc == 0 then
-            # send_events(JSON.parse(ke))
-            # ke=""
-        # end
-    # end
-# end
-
-puts "Hello all"
