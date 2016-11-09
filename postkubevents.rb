@@ -121,6 +121,7 @@ while true do
         "Authorization" => contents
     })
 
+    
     res = http.request(request)
 
     puts "Response #{res.code} #{res.message}: #{res.body}"

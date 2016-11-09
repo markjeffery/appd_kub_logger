@@ -12,9 +12,21 @@ require 'open3'
 # Read Kubernetes token
 
 file = File.open("/var/run/secrets/kubernetes.io/serviceaccount/token")
-contents = "Authorization: Bearer "
+contents = "Bearer "
 file.each {|line|
   contents << line
 }
 
-puts contents
+host = ENV["KUBERNETES_SERVICE_HOST"]
+port = ENV["KUBERNETES_PORT_443_TCP_PORT"]
+url = "https://#{host}:#{port}/api/v1/namespaces/default/events"
+uri = URI.parse(url)
+
+http = Net::HTTP.new(uri.host, uri.port)
+http.use_ssl = true
+request = Net::HTTP::Get.new(uri.path,
+  initheader = {
+    "Authorization" => contents
+  })
+
+puts request.body
